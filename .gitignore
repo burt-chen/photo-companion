@@ -1,0 +1,18 @@
+# 作業系統
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# 編輯器
+.vscode/
+.idea/
+*.swp
+
+# 本專案不使用套件管理，保留以防日後加入工具
+node_modules/
+
+# 本機測試產物
+*.log
+
+# 內部討論文件，不進版控
+互動拍照模組_技術與整合討論.md
