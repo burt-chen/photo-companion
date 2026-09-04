@@ -96,7 +96,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
   max-height: 100%;
   width: auto;
   height: auto;
+  /* 拖曳角色時不要觸發瀏覽器的捲動或縮放手勢 */
+  touch-action: none;
 }
+#stage.is-draggable { cursor: grab; }
+#stage.is-dragging { cursor: grabbing; }
 
 /* 相機來源不直接顯示，只供 canvas 取材 */
 #source {
@@ -250,6 +254,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
   font-weight: 700;
 }
 
+
+/* 自由擺放時的操作提示 */
+.draghint {
+  margin: 0 0 10px;
+  text-align: center;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
 
 /* 快門列 */
 .shutterbar {
@@ -528,6 +541,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
   .shutter { width: 60px; height: 60px; border-width: 2.5px; }
   .shutter span { width: 48px; height: 48px; }
+
+  .draghint {
+    display: none;
+  }
 
   .iconbtn { padding: 6px; }
   .iconbtn__ico { width: 22px; height: 22px; }

@@ -130,6 +130,67 @@
   };
 
   /* ======================================================================
+     動作零：自由擺放
+     --------------------------------------------------------------------
+     角色不自行移動，由使用者拖曳到任意位置。draggable 標記讓介面知道
+     這個動作需要開啟拖曳，並顯示操作提示。
+     ====================================================================== */
+
+  function Static(opt) {
+    this.breathe = opt.breathe !== false;   /* 輕微呼吸起伏，避免完全靜止 */
+    this.startX = opt.startX;               /* 0..1，佔畫面寬度的比例 */
+    this.startY = opt.startY;
+    this.time = 0;
+    this.x = null;
+    this.y = null;
+  }
+
+  Static.prototype.draggable = true;
+
+  /* 已經擺放過就保留位置，切換素材或大小時不會跳回原點 */
+  Static.prototype.reset = function (stage) {
+    this.time = 0;
+    if (this.x === null) {
+      this.x = stage.w * (typeof this.startX === 'number' ? this.startX : 0.5);
+      this.y = stage.h * (typeof this.startY === 'number' ? this.startY : 0.72);
+    }
+  };
+
+  Static.prototype.update = function (dt) {
+    this.time += dt;
+  };
+
+  /* 移動到指定的畫布座標，並限制在畫面內留一小段邊界 */
+  Static.prototype.moveTo = function (x, y, stage, sprite, scale) {
+    var hw = sprite.w * 0.5 * stage.u * scale * 0.4;
+    var hh = sprite.h * 0.5 * stage.u * scale * 0.4;
+    this.x = Math.max(hw, Math.min(stage.w - hw, x));
+    this.y = Math.max(hh, Math.min(stage.h - hh, y));
+  };
+
+  /* 判斷座標是否落在角色上，範圍略為放寬以利觸控 */
+  Static.prototype.hitTest = function (x, y, stage, sprite, scale) {
+    var s = stage.u * scale;
+    var hw = sprite.w * 0.5 * s * 1.25;
+    var hh = sprite.h * 0.5 * s * 1.25;
+    var minTouch = 44 * stage.u;
+    hw = Math.max(hw, minTouch);
+    hh = Math.max(hh, minTouch);
+    return Math.abs(x - this.x) <= hw && Math.abs(y - this.y) <= hh;
+  };
+
+  Static.prototype.draw = function (ctx, stage, sprite, scale) {
+    var s = stage.u * scale;
+    var sy = this.breathe ? 1 + 0.018 * Math.sin(this.time * 2.2) : 1;
+
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.scale(s, s * sy);
+    sprite.draw(ctx, { time: this.time, phase: 0, spread: 0 });
+    ctx.restore();
+  };
+
+  /* ======================================================================
      動作一：底部來回走動
      ====================================================================== */
 
@@ -527,7 +588,7 @@
      對外介面
      ====================================================================== */
 
-  var MOTIONS = { walker: Walker, jumper: Jumper, rain: Rain };
+  var MOTIONS = { static: Static, walker: Walker, jumper: Jumper, rain: Rain };
 
   global.PhotoEffects = {
 

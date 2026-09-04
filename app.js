@@ -60,7 +60,8 @@
       { id: 'xl', name: '特大', factor: 1.9, enabled: true, order: 4 }
     ],
     motions: [
-      { id: 'walk', name: '來回走動', type: 'walker', enabled: true, order: 1, options: {} },
+      { id: 'free', name: '自由擺放', type: 'static', enabled: true, order: 1, options: {} },
+      { id: 'walk', name: '來回走動', type: 'walker', enabled: true, order: 2, options: {} },
       { id: 'jump', name: '原地蹦跳', type: 'jumper', enabled: true, order: 2, options: {} },
       { id: 'fall', name: '持續落下', type: 'rain', enabled: true, order: 3, options: {} }
     ]
@@ -109,7 +110,7 @@
     [
       'stage', 'stageWrap', 'source', 'screenIntro', 'screenResult', 'screenError',
       'introTitle', 'barTitle', 'btnStart', 'btnShutter', 'btnFlip', 'btnFrame',
-      'spriteChips', 'motionChips', 'frameChips', 'sizeChips', 'btnPickers',
+      'spriteChips', 'motionChips', 'frameChips', 'sizeChips', 'btnPickers', 'dragHint',
       'pickersEffect', 'pickersFrame',
       'btnTimer', 'timerLabel', 'countdown', 'flash', 'resultImg', 'resultHint',
       'btnRetake', 'btnSave', 'btnRetry', 'errorTitle', 'errorMsg'
@@ -257,6 +258,7 @@
     currentFrame = frames.length ? frames[0] : null;
     currentSize = sizes[sizeIndex] || null;
     markSelected(el.sizeChips, sizeIndex);
+    updateDragState();
   }
 
   function fillChips(host, list, onPick) {
@@ -291,6 +293,74 @@
     currentMotion = motions[index] || null;
     if (currentMotion) currentMotion.instance.reset(stage);
     markSelected(el.motionChips, index);
+    updateDragState();
+  }
+
+  /* ======================================================================
+     自由擺放：拖曳角色
+     --------------------------------------------------------------------
+     只有標記 draggable 的動作會啟用。畫布為固定解析度並以 CSS 縮放，
+     因此指標座標需依實際顯示尺寸換算回畫布座標。
+     ====================================================================== */
+
+  var dragging = false;
+
+  function isDraggable() {
+    return !!(currentMotion && currentMotion.instance.draggable && currentSprite);
+  }
+
+  function updateDragState() {
+    var on = isDraggable();
+    el.dragHint.hidden = !on;
+    el.stage.classList.toggle('is-draggable', on);
+    if (!on) {
+      dragging = false;
+      el.stage.classList.remove('is-dragging');
+    }
+  }
+
+  function toCanvas(e) {
+    var r = el.stage.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    return {
+      x: (e.clientX - r.left) / r.width * stage.w,
+      y: (e.clientY - r.top) / r.height * stage.h
+    };
+  }
+
+  function currentScale() {
+    return currentSprite.scale * (currentSize ? currentSize.factor : 1);
+  }
+
+  function onDragStart(e) {
+    if (!isDraggable() || busy) return;
+    var p = toCanvas(e);
+    if (!p) return;
+
+    var m = currentMotion.instance;
+    if (!m.hitTest(p.x, p.y, stage, currentSprite.instance, currentScale())) return;
+
+    dragging = true;
+    el.stage.classList.add('is-dragging');
+    closePickers();
+    if (el.stage.setPointerCapture && e.pointerId !== undefined) {
+      el.stage.setPointerCapture(e.pointerId);
+    }
+    e.preventDefault();
+  }
+
+  function onDragMove(e) {
+    if (!dragging) return;
+    var p = toCanvas(e);
+    if (!p) return;
+    currentMotion.instance.moveTo(p.x, p.y, stage, currentSprite.instance, currentScale());
+    e.preventDefault();
+  }
+
+  function onDragEnd() {
+    if (!dragging) return;
+    dragging = false;
+    el.stage.classList.remove('is-dragging');
   }
 
   function selectFrame(index) {
@@ -299,6 +369,7 @@
   }
 
   function selectSize(index) {
+    /* 大小改變後角色可能超出邊界，稍後由 moveTo 夾住 */
     currentSize = sizes[index] || null;
     if (currentMotion) currentMotion.instance.reset(stage);
     markSelected(el.sizeChips, index);
@@ -674,6 +745,11 @@
       togglePanel(el.pickersFrame, el.btnFrame);
     });
     el.btnTimer.addEventListener('click', toggleTimer);
+    el.stage.addEventListener('pointerdown', onDragStart);
+    el.stage.addEventListener('pointermove', onDragMove);
+    el.stage.addEventListener('pointerup', onDragEnd);
+    el.stage.addEventListener('pointercancel', onDragEnd);
+
     el.btnFlip.addEventListener('click', flipCamera);
     el.btnSave.addEventListener('click', savePhoto);
     el.btnRetake.addEventListener('click', retake);
