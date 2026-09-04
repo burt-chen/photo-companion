@@ -7,10 +7,12 @@
    1. 相機畫面與動畫「都畫在同一張 canvas」上，按下快門就是直接輸出這張
       canvas，因此預覽與成品保證完全一致。
    2. 照片全程在瀏覽器內合成，不會上傳任何伺服器。
-   3. 所有素材皆為向量（見 effects.js），沒有任何外部圖檔，因此不會發生
-      跨來源圖片汙染 canvas 而導致無法匯出照片的問題。
+   3. 版面分為標題列、照片區、控制列三段。控制項一律在照片區之外，
+      不會遮擋構圖，畫面所見即為輸出結果。
+   4. 素材圖片必須與網頁同來源，否則 canvas 受汙染將無法輸出照片。
 
-   角色造型與動畫參數請改 effects.js，本檔案通常不需要調整。
+   素材與動畫參數請改 config.json，繪製邏輯在 effects.js，
+   本檔案通常不需要調整。
    ========================================================================== */
 
 (function () {
@@ -30,6 +32,15 @@
       enabled: true,
       label: 'ART IN COMMON'
     },
+    frames: [
+      { id: 'classic', name: '經典', type: 'classic', enabled: true, order: 1 },
+      { id: 'none', name: '無框', type: 'none', enabled: true, order: 9 },
+      { id: 'thin', name: '細邊', type: 'thin', enabled: true, order: 2 },
+      { id: 'rounded', name: '圓角', type: 'rounded', enabled: true, order: 3 },
+      { id: 'double', name: '雙線', type: 'double', enabled: true, order: 4 },
+      { id: 'film', name: '膠捲', type: 'film', enabled: true, order: 5 },
+      { id: 'caption', name: '底標', type: 'caption', enabled: true, order: 6 }
+    ],
     /* 圖片與動作各自獨立，使用者可任意組合。
        此處為 config.json 讀取失敗時的備援，內容應與 config.json 保持一致。 */
     sprites: [
@@ -63,9 +74,11 @@
   var config = DEFAULT_CONFIG;
   var sprites = [];             /* [{ meta, instance }] */
   var motions = [];             /* [{ meta, instance }] */
+  var frames = [];              /* [meta]，相框只是繪製樣式，不需實例 */
   var currentSprite = null;
   var currentMotion = null;
-  var frameOn = true;
+  var currentFrame = null;
+  var timerOn = true;        /* true 為倒數後拍攝，false 為按下即拍 */
 
   var stream = null;
   var facing = 'user';
@@ -86,10 +99,11 @@
 
   function cacheDom() {
     [
-      'stage', 'source', 'screenIntro', 'screenCamera', 'screenResult', 'screenError',
+      'stage', 'stageWrap', 'source', 'screenIntro', 'screenResult', 'screenError',
       'introTitle', 'barTitle', 'btnStart', 'btnShutter', 'btnFlip', 'btnFrame',
-      'spriteChips', 'motionChips', 'pickers', 'btnPickers', 'pickerSummary',
-      'countdown', 'flash', 'resultImg', 'resultHint',
+      'spriteChips', 'motionChips', 'frameChips', 'btnPickers',
+      'pickersEffect', 'pickersFrame',
+      'btnTimer', 'timerLabel', 'countdown', 'flash', 'resultImg', 'resultHint',
       'btnRetake', 'btnSave', 'btnRetry', 'errorTitle', 'errorMsg'
     ].forEach(function (id) {
       el[id] = document.getElementById(id);
@@ -98,10 +112,17 @@
 
   var ctx = null;
 
+  /* 拍攝畫面是底層版面，傳入 'camera' 即關閉所有覆蓋層 */
   function showScreen(name) {
-    ['screenIntro', 'screenCamera', 'screenResult', 'screenError'].forEach(function (k) {
+    ['screenIntro', 'screenResult', 'screenError'].forEach(function (k) {
       el[k].classList.toggle('is-active', k === name);
     });
+  }
+
+  function isCameraActive() {
+    return !el.screenIntro.classList.contains('is-active')
+        && !el.screenResult.classList.contains('is-active')
+        && !el.screenError.classList.contains('is-active');
   }
 
   /* ======================================================================
@@ -131,6 +152,7 @@
       title: typeof data.title === 'string' && data.title ? data.title : DEFAULT_CONFIG.title,
       countdown: typeof data.countdown === 'number' ? Math.max(0, data.countdown | 0) : DEFAULT_CONFIG.countdown,
       frame: DEFAULT_CONFIG.frame,
+      frames: DEFAULT_CONFIG.frames,
       sprites: DEFAULT_CONFIG.sprites,
       motions: DEFAULT_CONFIG.motions
     };
@@ -148,6 +170,14 @@
         return s && s.enabled !== false && s.src;
       });
       if (validSprites.length) out.sprites = validSprites;
+    }
+
+    /* 相框：只接受程式支援的樣式 */
+    if (Array.isArray(data.frames)) {
+      var validFrames = data.frames.filter(function (f) {
+        return f && f.enabled !== false && PhotoEffects.hasFrame(f.type);
+      });
+      if (validFrames.length) out.frames = validFrames;
     }
 
     /* 動作：只接受程式支援的種類，避免設定錯字造成整頁失效 */
@@ -182,12 +212,15 @@
       return { meta: meta, instance: PhotoEffects.createMotion(meta.type, meta.options || {}) };
     }).filter(function (m) { return !!m.instance; });
 
+    frames = config.frames.slice().sort(byOrder);
+
     fillChips(el.spriteChips, sprites, selectSprite);
     fillChips(el.motionChips, motions, selectMotion);
+    fillChips(el.frameChips, frames.map(function (f) { return { meta: f }; }), selectFrame);
 
     currentSprite = sprites.length ? sprites[0] : null;
     currentMotion = motions.length ? motions[0] : null;
-    updateSummary();
+    currentFrame = frames.length ? frames[0] : null;
   }
 
   function fillChips(host, list, onPick) {
@@ -216,36 +249,41 @@
     currentSprite = sprites[index] || null;
     if (currentMotion) currentMotion.instance.reset(stage);
     markSelected(el.spriteChips, index);
-    updateSummary();
   }
 
   function selectMotion(index) {
     currentMotion = motions[index] || null;
     if (currentMotion) currentMotion.instance.reset(stage);
     markSelected(el.motionChips, index);
-    updateSummary();
   }
 
-  /* 收合狀態下，按鈕直接顯示目前的組合，不必展開就知道選了什麼 */
-  function updateSummary() {
-    var a = currentSprite ? (currentSprite.meta.name || currentSprite.meta.id) : '';
-    var b = currentMotion ? (currentMotion.meta.name || currentMotion.meta.id) : '';
-    el.pickerSummary.textContent = (a && b) ? (a + ' · ' + b) : '更換';
+  function selectFrame(index) {
+    currentFrame = frames[index] || null;
+    markSelected(el.frameChips, index);
   }
 
-  function openPickers() {
-    el.pickers.classList.add('is-open');
-    el.btnPickers.setAttribute('aria-expanded', 'true');
+  function panels() {
+    return [
+      [el.pickersEffect, el.btnPickers],
+      [el.pickersFrame, el.btnFrame]
+    ];
   }
 
   function closePickers() {
-    el.pickers.classList.remove('is-open');
-    el.btnPickers.setAttribute('aria-expanded', 'false');
+    panels().forEach(function (p) {
+      p[0].classList.remove('is-open');
+      p[1].setAttribute('aria-expanded', 'false');
+    });
   }
 
-  function togglePickers() {
-    if (el.pickers.classList.contains('is-open')) closePickers();
-    else openPickers();
+  /* 開啟其中一個面板時關閉另一個，避免控制列過高擠壓照片區 */
+  function togglePanel(panel, btn) {
+    var wasOpen = panel.classList.contains('is-open');
+    closePickers();
+    if (!wasOpen) {
+      panel.classList.add('is-open');
+      btn.setAttribute('aria-expanded', 'true');
+    }
   }
 
   /* ======================================================================
@@ -264,14 +302,37 @@
     var over = Math.max(w, h) / MAX_EDGE;
     if (over > 1) { w /= over; h /= over; }
 
-    el.stage.width = Math.round(w);
-    el.stage.height = Math.round(h);
+    w = Math.round(w);
+    h = Math.round(h);
 
-    stage.w = el.stage.width;
-    stage.h = el.stage.height;
-    stage.u = stage.h / 1000;
+    /* 尺寸沒變就不動，避免面板展開的過渡期間反覆重設動畫 */
+    if (w === el.stage.width && h === el.stage.height) return;
+
+    el.stage.width = w;
+    el.stage.height = h;
+
+    stage.w = w;
+    stage.h = h;
+    stage.u = h / 1000;
 
     motions.forEach(function (m) { m.instance.reset(stage); });
+  }
+
+  /* 照片區的大小不只受視窗影響，展開選單面板、橫豎向切換也會改變它，
+     而那些都不會觸發 window 的 resize 事件。改以 ResizeObserver 追蹤，
+     否則 canvas 的實際解析度會與顯示尺寸不符而被拉伸。 */
+  function observeStage() {
+    if (typeof ResizeObserver !== 'function') return;
+
+    var pending = false;
+    new ResizeObserver(function () {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(function () {
+        pending = false;
+        resize();
+      });
+    }).observe(el.stageWrap);
   }
 
   /* ======================================================================
@@ -395,8 +456,9 @@
       currentMotion.instance.draw(ctx, stage, sprite, scale);
     }
 
-    if (frameOn && config.frame.enabled) {
-      PhotoEffects.drawFrame(ctx, stage, config.frame.label);
+    if (currentFrame) {
+      PhotoEffects.drawFrame(ctx, stage, currentFrame.type,
+        currentFrame.label !== undefined ? currentFrame.label : config.frame.label);
     }
   }
 
@@ -441,7 +503,7 @@
     closePickers();
     el.btnShutter.disabled = true;
 
-    var n = config.countdown;
+    var n = timerOn ? config.countdown : 0;
 
     (function step() {
       if (n > 0) {
@@ -540,7 +602,7 @@
 
   function enterCamera() {
     if (PREVIEW) {
-      showScreen('screenCamera');
+      showScreen('camera');
       resize();
       startLoop();
       return;
@@ -551,7 +613,7 @@
     el.btnStart.disabled = true;
     startCamera().then(function () {
       el.btnStart.disabled = false;
-      showScreen('screenCamera');
+      showScreen('camera');
       resize();
       startLoop();
     }).catch(function (err) {
@@ -566,16 +628,19 @@
     startCamera().catch(fail);
   }
 
-  function toggleFrame() {
-    frameOn = !frameOn;
-    el.btnFrame.setAttribute('aria-pressed', String(frameOn));
+  /* 倒數秒數：在設定的秒數與「按下即拍」之間切換 */
+  function toggleTimer() {
+    timerOn = !timerOn;
+    el.btnTimer.setAttribute('aria-pressed', String(timerOn));
+    el.timerLabel.textContent = timerOn ? (config.countdown + ' 秒') : '即拍';
   }
+
 
   function retake() {
     if (photoUrl) { URL.revokeObjectURL(photoUrl); photoUrl = ''; }
     photoBlob = null;
     el.resultImg.removeAttribute('src');
-    showScreen('screenCamera');
+    showScreen('camera');
     resize();
     startLoop();
   }
@@ -588,12 +653,18 @@
     el.btnStart.addEventListener('click', enterCamera);
     el.btnRetry.addEventListener('click', enterCamera);
     el.btnShutter.addEventListener('click', capture);
-    el.btnPickers.addEventListener('click', togglePickers);
+    el.btnPickers.addEventListener('click', function () {
+      togglePanel(el.pickersEffect, el.btnPickers);
+    });
+    el.btnFrame.addEventListener('click', function () {
+      togglePanel(el.pickersFrame, el.btnFrame);
+    });
+    el.btnTimer.addEventListener('click', toggleTimer);
     el.btnFlip.addEventListener('click', flipCamera);
-    el.btnFrame.addEventListener('click', toggleFrame);
     el.btnSave.addEventListener('click', savePhoto);
     el.btnRetake.addEventListener('click', retake);
 
+    observeStage();
     window.addEventListener('resize', resize);
     window.addEventListener('orientationchange', function () {
       setTimeout(resize, 250);
@@ -603,7 +674,7 @@
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) {
         stopLoop();
-      } else if (el.screenCamera.classList.contains('is-active')) {
+      } else if (isCameraActive()) {
         startLoop();
       }
     });
@@ -619,8 +690,11 @@
       el.barTitle.textContent = config.title;
       document.title = config.title;
 
-      el.btnFrame.setAttribute('aria-pressed', String(config.frame.enabled));
-      frameOn = config.frame.enabled;
+      /* 設定為 0 秒時沒有可切換的對象，直接隱藏按鈕 */
+      timerOn = config.countdown > 0;
+      el.btnTimer.hidden = config.countdown <= 0;
+      el.btnTimer.setAttribute('aria-pressed', String(timerOn));
+      el.timerLabel.textContent = timerOn ? (config.countdown + ' 秒') : '即拍';
 
       buildPickers();
       resize();
@@ -635,7 +709,7 @@
     var badge = document.createElement('div');
     badge.className = 'preview-badge';
     badge.textContent = '預覽模式 · 未啟用相機';
-    document.getElementById('app').appendChild(badge);
+    el.stageWrap.appendChild(badge);
 
     el.btnFlip.disabled = true;
     el.btnFlip.setAttribute('aria-pressed', 'false');

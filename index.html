@@ -13,8 +13,67 @@
 
 <div id="app">
 
-  <canvas id="stage"></canvas>
-  <video id="source" playsinline muted autoplay></video>
+  <!-- 標題列：在照片區之外 -->
+  <header class="topbar">
+    <span class="topbar__title" id="barTitle"></span>
+  </header>
+
+  <!-- 照片區：相機畫面與動畫都畫在這裡，控制項不會覆蓋 -->
+  <div class="stagewrap" id="stageWrap">
+    <canvas id="stage"></canvas>
+    <video id="source" playsinline muted autoplay></video>
+    <div class="countdown" id="countdown" aria-hidden="true"></div>
+    <div class="flash" id="flash" aria-hidden="true"></div>
+  </div>
+
+  <!-- 控制列：在照片區之外 -->
+  <footer class="controls">
+    <div class="pickers" id="pickersEffect">
+      <div class="picker">
+        <span class="picker__label">圖片</span>
+        <div class="chips" id="spriteChips" role="tablist" aria-label="圖片素材"></div>
+      </div>
+      <div class="picker">
+        <span class="picker__label">動作</span>
+        <div class="chips" id="motionChips" role="tablist" aria-label="動作方式"></div>
+      </div>
+    </div>
+
+    <div class="pickers pickers--frame" id="pickersFrame">
+      <div class="picker">
+        <span class="picker__label">相框</span>
+        <div class="chips" id="frameChips" role="tablist" aria-label="相框樣式"></div>
+      </div>
+    </div>
+
+    <div class="shutterbar">
+      <div class="shutterbar__group">
+        <button class="iconbtn iconbtn--effect" id="btnPickers" aria-expanded="false" aria-controls="pickersEffect">
+          <span class="iconbtn__ico" aria-hidden="true"></span>
+          <span class="iconbtn__label">效果</span>
+        </button>
+        <button class="iconbtn iconbtn--frame" id="btnFrame" aria-expanded="false" aria-controls="pickersFrame">
+          <span class="iconbtn__ico" aria-hidden="true"></span>
+          <span class="iconbtn__label">相框</span>
+        </button>
+      </div>
+
+      <button class="shutter" id="btnShutter" aria-label="拍照"><span></span></button>
+
+      <div class="shutterbar__group">
+        <button class="iconbtn iconbtn--flip" id="btnFlip">
+          <span class="iconbtn__ico" aria-hidden="true"></span>
+          <span class="iconbtn__label">鏡頭</span>
+        </button>
+        <button class="iconbtn iconbtn--timer" id="btnTimer" aria-pressed="true">
+          <span class="iconbtn__ico" aria-hidden="true"></span>
+          <span class="iconbtn__label" id="timerLabel">3 秒</span>
+        </button>
+      </div>
+    </div>
+  </footer>
+
+  <!-- 以下為覆蓋整個畫面的狀態頁 -->
 
   <section class="screen is-active" id="screenIntro">
     <div class="panel">
@@ -26,46 +85,6 @@
       <button class="btn btn--primary" id="btnStart">開始拍照</button>
       <p class="panel__note">按下後瀏覽器會詢問相機權限</p>
     </div>
-  </section>
-
-  <section class="screen" id="screenCamera">
-    <header class="topbar">
-      <span class="topbar__title" id="barTitle"></span>
-    </header>
-
-    <div class="countdown" id="countdown" aria-hidden="true"></div>
-    <div class="flash" id="flash" aria-hidden="true"></div>
-
-    <footer class="controls">
-      <div class="pickers" id="pickers">
-        <div class="picker">
-          <span class="picker__label">圖片</span>
-          <div class="chips" id="spriteChips" role="tablist" aria-label="圖片素材"></div>
-        </div>
-        <div class="picker">
-          <span class="picker__label">動作</span>
-          <div class="chips" id="motionChips" role="tablist" aria-label="動作方式"></div>
-        </div>
-      </div>
-
-      <div class="pickerbar">
-        <button class="picker-toggle" id="btnPickers" aria-expanded="false" aria-controls="pickers">
-          <span class="picker-toggle__ico" aria-hidden="true"></span>
-          <span id="pickerSummary">更換</span>
-        </button>
-      </div>
-      <div class="shutterbar">
-        <button class="iconbtn iconbtn--frame" id="btnFrame" aria-pressed="true">
-          <span class="iconbtn__ico" aria-hidden="true"></span>
-          <span class="iconbtn__label">相框</span>
-        </button>
-        <button class="shutter" id="btnShutter" aria-label="拍照"><span></span></button>
-        <button class="iconbtn iconbtn--flip" id="btnFlip">
-          <span class="iconbtn__ico" aria-hidden="true"></span>
-          <span class="iconbtn__label">鏡頭</span>
-        </button>
-      </div>
-    </footer>
   </section>
 
   <section class="screen" id="screenResult">

@@ -286,35 +286,61 @@
   };
 
   /* ======================================================================
-     相框：以向量繪製的預設外框
-     正式美術素材到位後，可在此改為 drawImage
+     相框
+     --------------------------------------------------------------------
+     每種相框都是一支繪製函式，全部以向量繪製，不需要圖檔。
+     要新增樣式就在下方寫一支函式並登記到 FRAMES，再到 config.json 的
+     frames 陣列加一筆即可。
      ====================================================================== */
 
-  function drawFrame(ctx, stage, label) {
+  function roundRectPath(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  /* 底部加深，讓白色文字與角色在明亮背景上仍然清楚 */
+  function bottomFade(ctx, stage, strength) {
+    var g = ctx.createLinearGradient(0, stage.h * 0.62, 0, stage.h);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(0,0,0,' + strength + ')');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, stage.h * 0.62, stage.w, stage.h * 0.38);
+  }
+
+  function drawLabel(ctx, stage, text, y, size, align, x) {
+    if (!text) return;
     var u = stage.u;
-    var w = stage.w;
-    var h = stage.h;
-    var pad = 26 * u;
+    ctx.save();
+    ctx.font = '600 ' + Math.round(size * u) + 'px "Noto Sans TC", system-ui, sans-serif';
+    ctx.textAlign = align || 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = 'rgba(255,255,255,0.94)';
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 10 * u;
+    ctx.fillText(text, x === undefined ? stage.w / 2 : x, y);
+    ctx.restore();
+  }
+
+  /* 經典：外框加四角強調 */
+  function frameClassic(ctx, stage, text) {
+    var u = stage.u, w = stage.w, h = stage.h, pad = 26 * u;
+
+    bottomFade(ctx, stage, 0.42);
 
     ctx.save();
-
-    var vign = ctx.createLinearGradient(0, h * 0.62, 0, h);
-    vign.addColorStop(0, 'rgba(0,0,0,0)');
-    vign.addColorStop(1, 'rgba(0,0,0,0.42)');
-    ctx.fillStyle = vign;
-    ctx.fillRect(0, h * 0.62, w, h * 0.38);
-
     ctx.strokeStyle = 'rgba(255,255,255,0.92)';
     ctx.lineWidth = 3 * u;
     ctx.strokeRect(pad, pad, w - pad * 2, h - pad * 2);
 
-    var arm = 46 * u;
-    var off = pad + 14 * u;
+    var arm = 46 * u, off = pad + 14 * u;
     var corners = [
-      [off, off, 1, 1],
-      [w - off, off, -1, 1],
-      [off, h - off, 1, -1],
-      [w - off, h - off, -1, -1]
+      [off, off, 1, 1], [w - off, off, -1, 1],
+      [off, h - off, 1, -1], [w - off, h - off, -1, -1]
     ];
     ctx.lineWidth = 6 * u;
     ctx.lineCap = 'round';
@@ -326,18 +352,127 @@
       ctx.lineTo(c[0], c[1] + arm * c[3]);
       ctx.stroke();
     }
-
-    if (label) {
-      ctx.font = '600 ' + Math.round(21 * u) + 'px "Noto Sans TC", system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'alphabetic';
-      ctx.fillStyle = 'rgba(255,255,255,0.94)';
-      ctx.shadowColor = 'rgba(0,0,0,0.45)';
-      ctx.shadowBlur = 10 * u;
-      ctx.fillText(label, w / 2, h - pad - 24 * u);
-    }
-
     ctx.restore();
+
+    drawLabel(ctx, stage, text, h - pad - 24 * u, 21);
+  }
+
+  /* 細邊：極簡單線 */
+  function frameThin(ctx, stage, text) {
+    var u = stage.u, w = stage.w, h = stage.h, pad = 34 * u;
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.88)';
+    ctx.lineWidth = 1.8 * u;
+    ctx.strokeRect(pad, pad, w - pad * 2, h - pad * 2);
+    ctx.restore();
+
+    drawLabel(ctx, stage, text, h - pad - 20 * u, 16);
+  }
+
+  /* 圓角：厚圓角外框，標籤置於底部藥丸內 */
+  function frameRounded(ctx, stage, text) {
+    var u = stage.u, w = stage.w, h = stage.h, pad = 22 * u, r = 36 * u;
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+    ctx.lineWidth = 4.5 * u;
+    roundRectPath(ctx, pad, pad, w - pad * 2, h - pad * 2, r);
+    ctx.stroke();
+    ctx.restore();
+
+    if (text) {
+      ctx.save();
+      var size = 18 * u;
+      ctx.font = '700 ' + Math.round(size) + 'px "Noto Sans TC", system-ui, sans-serif';
+      var tw = ctx.measureText(text).width;
+      var pw = tw + 34 * u, ph = 34 * u;
+      var px = (w - pw) / 2, py = h - pad - ph - 14 * u;
+
+      ctx.fillStyle = 'rgba(0,0,0,0.62)';
+      roundRectPath(ctx, px, py, pw, ph, ph / 2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.96)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, w / 2, py + ph / 2);
+      ctx.restore();
+    }
+  }
+
+  /* 雙線：內外兩道線，較正式 */
+  function frameDouble(ctx, stage, text) {
+    var u = stage.u, w = stage.w, h = stage.h, p1 = 22 * u, p2 = 36 * u;
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+    ctx.lineWidth = 3.6 * u;
+    ctx.strokeRect(p1, p1, w - p1 * 2, h - p1 * 2);
+    ctx.lineWidth = 1.3 * u;
+    ctx.strokeRect(p2, p2, w - p2 * 2, h - p2 * 2);
+    ctx.restore();
+
+    drawLabel(ctx, stage, text, h - p2 - 22 * u, 18);
+  }
+
+  /* 膠捲：上下暗帶加齒孔 */
+  function frameFilm(ctx, stage, text) {
+    var u = stage.u, w = stage.w, h = stage.h, bar = 74 * u;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(12,12,14,0.94)';
+    ctx.fillRect(0, 0, w, bar);
+    ctx.fillRect(0, h - bar, w, bar);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    var hw = 26 * u, hh = 17 * u, gap = 30 * u;
+    var y1 = (bar - hh) / 2, y2 = h - bar + (bar - hh) / 2;
+    for (var x = gap; x < w - hw; x += hw + gap) {
+      roundRectPath(ctx, x, y1, hw, hh, 4 * u); ctx.fill();
+      roundRectPath(ctx, x, y2, hw, hh, 4 * u); ctx.fill();
+    }
+    ctx.restore();
+
+    drawLabel(ctx, stage, text, h - bar - 22 * u, 19);
+  }
+
+  /* 底標：無外框，僅底部說明帶 */
+  function frameCaption(ctx, stage, text) {
+    var u = stage.u, w = stage.w, h = stage.h;
+
+    bottomFade(ctx, stage, 0.7);
+
+    if (!text) return;
+
+    ctx.save();
+    ctx.fillStyle = '#F97316';
+    ctx.fillRect(40 * u, h - 62 * u, 6 * u, 30 * u);
+
+    ctx.font = '700 ' + Math.round(23 * u) + 'px "Noto Sans TC", system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
+    ctx.fillText(text, 60 * u, h - 40 * u);
+    ctx.restore();
+  }
+
+  /* 無框：不繪製任何內容，作為相框清單中的關閉選項 */
+  function frameNone() {}
+
+  var FRAMES = {
+    none: frameNone,
+    classic: frameClassic,
+    thin: frameThin,
+    rounded: frameRounded,
+    double: frameDouble,
+    film: frameFilm,
+    caption: frameCaption
+  };
+
+  function drawFrame(ctx, stage, type, text) {
+    var fn = FRAMES[type] || FRAMES.classic;
+    fn(ctx, stage, text);
   }
 
   /* ======================================================================
@@ -398,6 +533,10 @@
 
     hasMotion: function (type) {
       return Object.prototype.hasOwnProperty.call(MOTIONS, type);
+    },
+
+    hasFrame: function (type) {
+      return Object.prototype.hasOwnProperty.call(FRAMES, type);
     },
 
     /* def 為 { src, cols, rows, frames, fps, shadow } */
