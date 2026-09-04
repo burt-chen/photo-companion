@@ -28,8 +28,9 @@
   var DEFAULT_CONFIG = {
     title: '公共藝術互動拍照',
     countdown: 3,
+    /* 輸出解析度固定，不隨螢幕大小改變，所有裝置拍出的照片一致 */
+    output: { width: 1080, height: 1440 },
     frame: {
-      enabled: true,
       label: 'ART IN COMMON'
     },
     frames: [
@@ -52,6 +53,12 @@
       { id: 'cat-sit', name: '坐姿貓', src: './assets/cat-line.png', scale: 1.2, enabled: true, order: 3 },
       { id: 'orange', name: '橘子', src: './assets/orange.png', scale: 1.35, shadow: false, enabled: true, order: 4 }
     ],
+    sizes: [
+      { id: 'sm', name: '小', factor: 0.7, enabled: true, order: 1 },
+      { id: 'md', name: '中', factor: 1, enabled: true, order: 2, "default": true },
+      { id: 'lg', name: '大', factor: 1.4, enabled: true, order: 3 },
+      { id: 'xl', name: '特大', factor: 1.9, enabled: true, order: 4 }
+    ],
     motions: [
       { id: 'walk', name: '來回走動', type: 'walker', enabled: true, order: 1, options: {} },
       { id: 'jump', name: '原地蹦跳', type: 'jumper', enabled: true, order: 2, options: {} },
@@ -61,7 +68,6 @@
 
   var CONFIG_URL = './config.json';
   var CONFIG_TIMEOUT = 2500;
-  var MAX_EDGE = 1920;          /* canvas 長邊上限，避免大螢幕產生過大點陣 */
 
   /* 預覽模式：網址加上 ?preview=1 時不啟動相機，改用模擬背景，
      供版面與動畫檢視使用。正式部署的一般網址不受影響。 */
@@ -75,9 +81,11 @@
   var sprites = [];             /* [{ meta, instance }] */
   var motions = [];             /* [{ meta, instance }] */
   var frames = [];              /* [meta]，相框只是繪製樣式，不需實例 */
+  var sizes = [];               /* [meta]，角色大小倍率 */
   var currentSprite = null;
   var currentMotion = null;
   var currentFrame = null;
+  var currentSize = null;
   var timerOn = true;        /* true 為倒數後拍攝，false 為按下即拍 */
 
   var stream = null;
@@ -101,7 +109,7 @@
     [
       'stage', 'stageWrap', 'source', 'screenIntro', 'screenResult', 'screenError',
       'introTitle', 'barTitle', 'btnStart', 'btnShutter', 'btnFlip', 'btnFrame',
-      'spriteChips', 'motionChips', 'frameChips', 'btnPickers',
+      'spriteChips', 'motionChips', 'frameChips', 'sizeChips', 'btnPickers',
       'pickersEffect', 'pickersFrame',
       'btnTimer', 'timerLabel', 'countdown', 'flash', 'resultImg', 'resultHint',
       'btnRetake', 'btnSave', 'btnRetry', 'errorTitle', 'errorMsg'
@@ -151,11 +159,21 @@
     var out = {
       title: typeof data.title === 'string' && data.title ? data.title : DEFAULT_CONFIG.title,
       countdown: typeof data.countdown === 'number' ? Math.max(0, data.countdown | 0) : DEFAULT_CONFIG.countdown,
+      output: DEFAULT_CONFIG.output,
       frame: DEFAULT_CONFIG.frame,
       frames: DEFAULT_CONFIG.frames,
       sprites: DEFAULT_CONFIG.sprites,
+      sizes: DEFAULT_CONFIG.sizes,
       motions: DEFAULT_CONFIG.motions
     };
+
+    if (data.output && typeof data.output === 'object') {
+      var ow = parseInt(data.output.width, 10);
+      var oh = parseInt(data.output.height, 10);
+      if (ow > 0 && oh > 0 && ow <= 4096 && oh <= 4096) {
+        out.output = { width: ow, height: oh };
+      }
+    }
 
     if (data.frame && typeof data.frame === 'object') {
       out.frame = {
@@ -170,6 +188,14 @@
         return s && s.enabled !== false && s.src;
       });
       if (validSprites.length) out.sprites = validSprites;
+    }
+
+    /* 大小：倍率須為正數 */
+    if (Array.isArray(data.sizes)) {
+      var validSizes = data.sizes.filter(function (z) {
+        return z && z.enabled !== false && typeof z.factor === 'number' && z.factor > 0;
+      });
+      if (validSizes.length) out.sizes = validSizes;
     }
 
     /* 相框：只接受程式支援的樣式 */
@@ -213,14 +239,24 @@
     }).filter(function (m) { return !!m.instance; });
 
     frames = config.frames.slice().sort(byOrder);
+    sizes = config.sizes.slice().sort(byOrder);
+
+    /* 預設大小取標記 default 的項目，未標記則取第一項 */
+    var sizeIndex = 0;
+    for (var i = 0; i < sizes.length; i++) {
+      if (sizes[i]['default']) { sizeIndex = i; break; }
+    }
 
     fillChips(el.spriteChips, sprites, selectSprite);
     fillChips(el.motionChips, motions, selectMotion);
     fillChips(el.frameChips, frames.map(function (f) { return { meta: f }; }), selectFrame);
+    fillChips(el.sizeChips, sizes.map(function (z) { return { meta: z }; }), selectSize);
 
     currentSprite = sprites.length ? sprites[0] : null;
     currentMotion = motions.length ? motions[0] : null;
     currentFrame = frames.length ? frames[0] : null;
+    currentSize = sizes[sizeIndex] || null;
+    markSelected(el.sizeChips, sizeIndex);
   }
 
   function fillChips(host, list, onPick) {
@@ -262,6 +298,12 @@
     markSelected(el.frameChips, index);
   }
 
+  function selectSize(index) {
+    currentSize = sizes[index] || null;
+    if (currentMotion) currentMotion.instance.reset(stage);
+    markSelected(el.sizeChips, index);
+  }
+
   function panels() {
     return [
       [el.pickersEffect, el.btnPickers],
@@ -290,23 +332,12 @@
      舞台尺寸
      ====================================================================== */
 
-  function resize() {
-    var rect = el.stage.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-
-    var dpr = Math.min(window.devicePixelRatio || 1, 2);
-    var w = rect.width * dpr;
-    var h = rect.height * dpr;
-
-    /* 限制長邊，避免高解析度裝置產生過大的 canvas */
-    var over = Math.max(w, h) / MAX_EDGE;
-    if (over > 1) { w /= over; h /= over; }
-
-    w = Math.round(w);
-    h = Math.round(h);
-
-    /* 尺寸沒變就不動，避免面板展開的過渡期間反覆重設動畫 */
-    if (w === el.stage.width && h === el.stage.height) return;
+  /* 輸出解析度固定於設定值，與螢幕大小無關，因此只需在啟動時設定一次。
+     畫面上的顯示尺寸由 CSS 等比縮放，超出的部分以留白呈現。
+     這確保每台裝置拍出的照片尺寸、構圖與相框比例完全一致。 */
+  function setStageSize() {
+    var w = config.output.width;
+    var h = config.output.height;
 
     el.stage.width = w;
     el.stage.height = h;
@@ -316,23 +347,6 @@
     stage.u = h / 1000;
 
     motions.forEach(function (m) { m.instance.reset(stage); });
-  }
-
-  /* 照片區的大小不只受視窗影響，展開選單面板、橫豎向切換也會改變它，
-     而那些都不會觸發 window 的 resize 事件。改以 ResizeObserver 追蹤，
-     否則 canvas 的實際解析度會與顯示尺寸不符而被拉伸。 */
-  function observeStage() {
-    if (typeof ResizeObserver !== 'function') return;
-
-    var pending = false;
-    new ResizeObserver(function () {
-      if (pending) return;
-      pending = true;
-      requestAnimationFrame(function () {
-        pending = false;
-        resize();
-      });
-    }).observe(el.stageWrap);
   }
 
   /* ======================================================================
@@ -451,7 +465,7 @@
     /* 動作只負責運動，素材只負責外觀，兩者在此組合 */
     if (currentMotion && currentSprite) {
       var sprite = currentSprite.instance;
-      var scale = currentSprite.scale;
+      var scale = currentSprite.scale * (currentSize ? currentSize.factor : 1);
       currentMotion.instance.update(dt, stage, sprite, scale);
       currentMotion.instance.draw(ctx, stage, sprite, scale);
     }
@@ -603,7 +617,7 @@
   function enterCamera() {
     if (PREVIEW) {
       showScreen('camera');
-      resize();
+      
       startLoop();
       return;
     }
@@ -614,7 +628,7 @@
     startCamera().then(function () {
       el.btnStart.disabled = false;
       showScreen('camera');
-      resize();
+      
       startLoop();
     }).catch(function (err) {
       el.btnStart.disabled = false;
@@ -641,7 +655,7 @@
     photoBlob = null;
     el.resultImg.removeAttribute('src');
     showScreen('camera');
-    resize();
+    
     startLoop();
   }
 
@@ -664,11 +678,6 @@
     el.btnSave.addEventListener('click', savePhoto);
     el.btnRetake.addEventListener('click', retake);
 
-    observeStage();
-    window.addEventListener('resize', resize);
-    window.addEventListener('orientationchange', function () {
-      setTimeout(resize, 250);
-    });
 
     /* 切到背景時停止算圖，回到前景再恢復，避免無謂耗電 */
     document.addEventListener('visibilitychange', function () {
@@ -697,7 +706,7 @@
       el.timerLabel.textContent = timerOn ? (config.countdown + ' 秒') : '即拍';
 
       buildPickers();
-      resize();
+      setStageSize();
       bind();
 
       if (PREVIEW) enterPreview();
