@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 70 80" width="70" height="80">
-  <!-- 佔位素材：橘子。中心對稱，適合搭配旋轉類動作。 -->
-  <path d="M35 24 V14" fill="none" stroke="#7C4A21" stroke-width="5" stroke-linecap="round"/>
-  <ellipse cx="48" cy="14" rx="14" ry="7" fill="#4ADE80" transform="rotate(-20 48 14)"/>
-  <ellipse cx="35" cy="50" rx="30" ry="28" fill="#F97316"/>
-  <ellipse cx="25" cy="41" rx="11" ry="8" fill="#FDBA74"/>
-</svg>
