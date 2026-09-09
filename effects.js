@@ -177,6 +177,8 @@
   /* 已經擺放過就保留位置，切換素材或大小時不會跳回原點 */
   Static.prototype.reset = function (stage) {
     this.time = 0;
+    /* 舞台尚未取得尺寸時不初始化，留待尺寸確定後的下一次 reset */
+    if (!stage.w || !stage.h) return;
     if (this.x === null) {
       this.x = stage.w * (typeof this.startX === 'number' ? this.startX : 0.5);
       this.y = stage.h * (typeof this.startY === 'number' ? this.startY : 0.72);
@@ -239,6 +241,7 @@
   Walker.prototype.reset = function (stage) {
     this.time = 0;
     this.phase = 0;
+    if (!stage.w || !stage.h) return;
     if (this.x === null) this.x = stage.w * 0.5;
     if (this.footY === null) this.footY = stage.h - this.ground * stage.u;
   };
@@ -294,6 +297,7 @@
   Jumper.prototype.reset = function (stage) {
     this.t = 0;
     this.time = 0;
+    if (!stage.w || !stage.h) return;
     if (this.x === null) this.x = stage.w * 0.5;
     if (this.footY === null) this.footY = stage.h - this.ground * stage.u;
   };
@@ -353,12 +357,40 @@
     this.maxSpeed = opt.maxSpeed || 300;
     this.spin = opt.spin === undefined ? 1 : opt.spin;   /* 0 可關閉旋轉 */
     this.sway = opt.sway === undefined ? 22 : opt.sway;
+
+    /* 避免重疊：把畫面切成與數量相同的直向軌道，每個個體固定佔一條，
+       隨機位移與左右飄動都夾在自己的軌道內，因此不會左右相疊。
+       軌道寬度為畫面寬除以數量；若素材比軌道還寬則無法完全避免，
+       此時個體會盡量停在軌道中央。 */
+    this.noOverlap = opt.noOverlap !== false;
+
     this.time = 0;
     this.items = [];
   }
 
-  Rain.prototype.spawn = function (stage, aloft) {
+  /* 計算個體當下的水平位置 */
+  Rain.prototype.itemX = function (it, stage, sprite, scale) {
+    if (!this.noOverlap) {
+      return it.x + Math.sin(it.swayPhase) * this.sway * stage.u;
+    }
+
+    var laneW = stage.w / this.count;
+    var center = (it.lane + 0.5) * laneW;
+
+    /* 軌道內扣掉素材本身寬度後，剩餘的可活動空間 */
+    var halfSprite = sprite.w * 0.5 * stage.u * scale * it.size;
+    var free = Math.max(0, laneW * 0.5 - halfSprite);
+
+    var swayAmp = Math.min(this.sway * stage.u, free);
+    var jitterAmp = Math.max(0, free - swayAmp);
+
+    return center + it.jitter * jitterAmp + Math.sin(it.swayPhase) * swayAmp;
+  };
+
+  Rain.prototype.spawn = function (stage, aloft, lane) {
     return {
+      lane: lane,
+      jitter: Math.random() * 2 - 1,     /* -1..1，軌道內的偏移比例 */
       x: Math.random() * stage.w,
       y: aloft ? Math.random() * stage.h : -120 * stage.u,
       vy: (this.minSpeed + Math.random() * (this.maxSpeed - this.minSpeed)) * stage.u,
@@ -374,7 +406,7 @@
     this.time = 0;
     this.items = [];
     for (var i = 0; i < this.count; i++) {
-      this.items.push(this.spawn(stage, true));
+      this.items.push(this.spawn(stage, true, i));
     }
   };
 
@@ -388,7 +420,7 @@
       it.rot += it.vrot * dt;
       it.swayPhase += dt * 1.7;
       if (it.y > stage.h + 120 * stage.u) {
-        this.items[i] = this.spawn(stage, false);
+        this.items[i] = this.spawn(stage, false, it.lane);   /* 沿用原軌道 */
       }
     }
   };
@@ -400,7 +432,7 @@
       var it = this.items[i];
       var s = stage.u * scale * it.size;
       ctx.save();
-      ctx.translate(it.x + Math.sin(it.swayPhase) * this.sway * stage.u, it.y);
+      ctx.translate(this.itemX(it, stage, sprite, scale), it.y);
       ctx.rotate(it.rot);
       ctx.scale(s, s);
       sprite.draw(ctx, st);

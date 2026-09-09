@@ -243,12 +243,6 @@
     frames = config.frames.slice().sort(byOrder);
     sizes = config.sizes.slice().sort(byOrder);
 
-    /* 預設大小取標記 default 的項目，未標記則取第一項 */
-    var sizeIndex = 0;
-    for (var i = 0; i < sizes.length; i++) {
-      if (sizes[i]['default']) { sizeIndex = i; break; }
-    }
-
     fillChips(el.spriteChips, sprites, toggleSprite);
     fillChips(el.motionChips, motions, selectMotion);
     fillChips(el.frameChips, frames.map(function (f) { return { meta: f }; }), selectFrame);
@@ -256,10 +250,22 @@
 
     currentMotion = motions.length ? motions[0] : null;
     currentFrame = frames.length ? frames[0] : null;
+
+    /* 預設大小取標記 default 的項目，未標記則取第一項 */
+    var sizeIndex = 0;
+    for (var i = 0; i < sizes.length; i++) {
+      if (sizes[i]['default']) { sizeIndex = i; break; }
+    }
     currentSize = sizes[sizeIndex] || null;
     markSelected(el.sizeChips, sizeIndex);
 
-    selectedIds = sprites.length ? [sprites[0].meta.id] : [];
+    /* 預設不選任何圖片，畫面上不出現角色。
+       若要指定預設角色，在該筆素材加上 "default": true。 */
+    selectedIds = sprites.filter(function (s) {
+      return s.meta['default'];
+    }).map(function (s) {
+      return s.meta.id;
+    });
     syncActors();
     markSprites();
     updateDragState();
@@ -862,8 +868,9 @@
       el.btnTimer.setAttribute('aria-pressed', String(timerOn));
       el.timerLabel.textContent = timerOn ? (config.countdown + ' 秒') : '即拍';
 
-      buildPickers();
+      /* 必須先決定舞台尺寸，buildPickers 會依 stage 計算角色初始位置 */
       setStageSize();
+      buildPickers();
       bind();
 
       if (PREVIEW) enterPreview();

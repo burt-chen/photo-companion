@@ -1,7 +1,5 @@
 {
-  "_說明": "圖片與動作可分別增刪，兩者自由組合。修改後重新整理頁面即生效，不需重新建置。若本檔案讀取失敗，程式會使用 app.js 內建的預設值。",
   "title": "公共藝術互動拍照",
-  "_output說明": "輸出照片的固定解析度。所有裝置都以此尺寸合成，與螢幕大小無關，因此構圖與相框比例一致。",
   "output": {
     "width": 1080,
     "height": 1440
@@ -9,10 +7,6 @@
   "countdown": 3,
   "frame": {
     "label": "Geoforce"
-  },
-  "_frames說明": {
-    "type": "相框樣式，僅接受 classic（經典）、thin（細邊）、rounded（圓角）、double（雙線）、film（膠捲）、caption（底標）、none（無框）。",
-    "label": "可個別覆寫底部文字；省略則沿用上方 frame.label。"
   },
   "frames": [
     {
@@ -65,16 +59,6 @@
       "order": 9
     }
   ],
-  "_sprites說明": {
-    "src": "圖片路徑。圖片必須與網頁放在同一個網域，否則無法輸出合成照片。載入失敗時該角色不會顯示。",
-    "scale": "顯示大小倍率。已依各圖的實際內容佔比校正，換圖後需重新調整。",
-    "cols/rows": "連續動作圖的欄數與列數。單張圖可省略。",
-    "frames": "實際使用的格數，省略則為 cols×rows。橫向單排時可只填 frames。",
-    "fps": "多格時的播放速度（格／秒）。",
-    "shadow": "是否加柔和陰影，預設 true。淺色線稿建議保留，本身已有粗描邊的可設 false。",
-    "order": "顯示順序，由小到大。",
-    "enabled": "設為 false 可暫時停用而不刪除。"
-  },
   "sprites": [
     {
       "id": "cat-walk",
@@ -122,14 +106,6 @@
       "order": 5
     }
   ],
-  "_motions說明": {
-    "type": "動作種類，僅接受 static（自由擺放，可拖曳）、walker（來回走動）、jumper（原地蹦跳）、rain（持續落下）。",
-    "options": "各動作的可調參數，省略則使用預設值。落下的 spin 設為 0 可維持素材原本方向，大於 0 則會旋轉。"
-  },
-  "_sizes說明": {
-    "factor": "角色大小倍率，疊在各素材已校正的 scale 之上。",
-    "default": "標記為 true 者為預設選項。"
-  },
   "sizes": [
     {
       "id": "sm",
@@ -206,11 +182,12 @@
       "enabled": true,
       "order": 4,
       "options": {
-        "count": 9,
-        "minSpeed": 30,
+        "count": 5,
+        "minSpeed": 70,
         "maxSpeed": 70,
         "spin": 0,
-        "sway": 22
+        "sway": 0,
+        "noOverlap": true
       }
     }
   ]
