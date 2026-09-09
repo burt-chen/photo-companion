@@ -130,6 +130,33 @@
   };
 
   /* ======================================================================
+     拖曳共用工具
+     --------------------------------------------------------------------
+     位置以「腳底線 footY」記錄而非中心點，切換角色大小時腳底才會維持
+     在同一條線上，不會浮起或陷入。
+     ====================================================================== */
+
+  /* 命中判定，範圍略為放寬並保證最小觸控尺寸 */
+  function hitBox(cx, cy, x, y, stage, sprite, s, pad, extraUp) {
+    var hw = Math.max(sprite.w * 0.5 * s * pad, 44 * stage.u);
+    var hh = Math.max(sprite.h * 0.5 * s * pad, 44 * stage.u);
+    return Math.abs(x - cx) <= hw &&
+           y >= cy - hh - (extraUp || 0) &&
+           y <= cy + hh;
+  }
+
+  /* 將指標座標換算為新的位置，並限制在畫面內 */
+  function placeAt(motion, x, y, stage, sprite, scale) {
+    var s = stage.u * scale;
+    var halfH = sprite.h * 0.5 * s;
+    var hw = sprite.w * 0.5 * s * 0.4;
+    var hh = halfH * 0.4;
+
+    motion.x = Math.max(hw, Math.min(stage.w - hw, x));
+    motion.footY = Math.max(hh, Math.min(stage.h - hh, y)) + halfH;
+  }
+
+  /* ======================================================================
      動作零：自由擺放
      --------------------------------------------------------------------
      角色不自行移動，由使用者拖曳到任意位置。draggable 標記讓介面知道
@@ -196,23 +223,30 @@
 
   function Walker(opt) {
     this.speed = opt.speed || 150;       /* 每秒移動的畫面單位 */
-    this.ground = opt.ground || 60;      /* 距離底部的高度 */
+    this.ground = opt.ground || 60;      /* 預設的距離底部高度 */
     this.cycle = opt.cycle || 1.6;       /* 每秒走幾個循環 */
-    this.x = 0;
+    this.x = null;
+    this.footY = null;                   /* 走動的水平線，可由拖曳調整 */
     this.dir = 1;
     this.time = 0;
     this.phase = 0;
+    this.isDragging = false;
   }
 
+  Walker.prototype.draggable = true;
+
+  /* 已擺放過就保留位置，切換素材或大小時不跳回原處 */
   Walker.prototype.reset = function (stage) {
-    this.x = stage.w * 0.5;
-    this.dir = 1;
     this.time = 0;
     this.phase = 0;
+    if (this.x === null) this.x = stage.w * 0.5;
+    if (this.footY === null) this.footY = stage.h - this.ground * stage.u;
   };
 
   Walker.prototype.update = function (dt, stage, sprite, scale) {
     this.time += dt;
+    if (this.isDragging) return;         /* 拖曳期間暫停，才抓得住 */
+
     this.x += this.speed * stage.u * dt * this.dir;
     this.phase = (this.phase + dt * this.cycle) % 1;
 
@@ -221,10 +255,19 @@
     if (this.x < pad) { this.x = pad; this.dir = 1; }
   };
 
+  Walker.prototype.hitTest = function (x, y, stage, sprite, scale) {
+    var s = stage.u * scale;
+    return hitBox(this.x, this.footY - sprite.h * 0.5 * s, x, y, stage, sprite, s, 1.4, 0);
+  };
+
+  Walker.prototype.moveTo = function (x, y, stage, sprite, scale) {
+    placeAt(this, x, y, stage, sprite, scale);
+  };
+
   Walker.prototype.draw = function (ctx, stage, sprite, scale) {
     var s = stage.u * scale;
     ctx.save();
-    ctx.translate(this.x, stage.h - this.ground * stage.u - sprite.h * 0.5 * s);
+    ctx.translate(this.x, this.footY - sprite.h * 0.5 * s);
     ctx.scale(this.dir * s, s);
     sprite.draw(ctx, { time: this.time, phase: this.phase, spread: 0 });
     ctx.restore();
@@ -238,21 +281,39 @@
     this.jumpDur = opt.jumpDur || 0.72;   /* 一次跳躍的秒數 */
     this.restDur = opt.restDur || 0.45;   /* 落地後停頓的秒數 */
     this.height = opt.height || 210;      /* 跳躍高度（畫面單位） */
-    this.ground = opt.ground || 60;
+    this.ground = opt.ground || 60;       /* 預設的距離底部高度 */
     this.time = 0;
     this.t = 0;
-    this.x = 0;
+    this.x = null;
+    this.footY = null;                    /* 落地的水平線，可由拖曳調整 */
+    this.isDragging = false;
   }
 
+  Jumper.prototype.draggable = true;
+
   Jumper.prototype.reset = function (stage) {
-    this.x = stage.w * 0.5;
     this.t = 0;
     this.time = 0;
+    if (this.x === null) this.x = stage.w * 0.5;
+    if (this.footY === null) this.footY = stage.h - this.ground * stage.u;
   };
 
   Jumper.prototype.update = function (dt) {
     this.time += dt;
+    /* 拖曳期間停在落地狀態，位置才好對準 */
+    if (this.isDragging) { this.t = 0; return; }
     this.t = (this.t + dt) % (this.jumpDur + this.restDur);
+  };
+
+  /* 角色在跳躍中，命中範圍往上延伸涵蓋整段跳躍高度 */
+  Jumper.prototype.hitTest = function (x, y, stage, sprite, scale) {
+    var s = stage.u * scale;
+    var cy = this.footY - sprite.h * 0.5 * s;
+    return hitBox(this.x, cy, x, y, stage, sprite, s, 1.4, this.height * stage.u);
+  };
+
+  Jumper.prototype.moveTo = function (x, y, stage, sprite, scale) {
+    placeAt(this, x, y, stage, sprite, scale);
   };
 
   Jumper.prototype.draw = function (ctx, stage, sprite, scale) {
@@ -276,7 +337,7 @@
     }
 
     ctx.save();
-    ctx.translate(this.x, stage.h - this.ground * stage.u - lift - sprite.h * 0.5 * s * sy);
+    ctx.translate(this.x, this.footY - lift - sprite.h * 0.5 * s * sy);
     ctx.scale(s / sy, s * sy);
     sprite.draw(ctx, { time: this.time, phase: phase, spread: spread });
     ctx.restore();
@@ -302,7 +363,8 @@
       y: aloft ? Math.random() * stage.h : -120 * stage.u,
       vy: (this.minSpeed + Math.random() * (this.maxSpeed - this.minSpeed)) * stage.u,
       swayPhase: Math.random() * TAU,
-      rot: Math.random() * TAU,
+      /* spin 為 0 時連初始角度也一併歸零，維持素材原本的方向落下 */
+      rot: this.spin ? Math.random() * TAU : 0,
       vrot: (Math.random() - 0.5) * 2.4 * this.spin,
       size: 0.62 + Math.random() * 0.55
     };

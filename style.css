@@ -222,6 +222,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .picker__label {
   flex: 0 0 auto;
   width: 28px;
+  line-height: 1.3;
   font-size: 11px;
   letter-spacing: 0.1em;
   color: var(--text-dim);
@@ -235,6 +236,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
   scrollbar-width: none;
 }
 .chips::-webkit-scrollbar { display: none; }
+
+.picker__label small {
+  font-size: 9px;
+  opacity: 0.75;
+  letter-spacing: 0;
+}
 
 .chip {
   flex: 0 0 auto;

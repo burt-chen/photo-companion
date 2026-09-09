@@ -8,7 +8,7 @@
   },
   "countdown": 3,
   "frame": {
-    "label": "ART IN COMMON"
+    "label": "Geoforce"
   },
   "_frames說明": {
     "type": "相框樣式，僅接受 classic（經典）、thin（細邊）、rounded（圓角）、double（雙線）、film（膠捲）、caption（底標）、none（無框）。",
@@ -124,7 +124,7 @@
   ],
   "_motions說明": {
     "type": "動作種類，僅接受 static（自由擺放，可拖曳）、walker（來回走動）、jumper（原地蹦跳）、rain（持續落下）。",
-    "options": "各動作的可調參數，省略則使用預設值。"
+    "options": "各動作的可調參數，省略則使用預設值。落下的 spin 設為 0 可維持素材原本方向，大於 0 則會旋轉。"
   },
   "_sizes說明": {
     "factor": "角色大小倍率，疊在各素材已校正的 scale 之上。",
@@ -207,9 +207,9 @@
       "order": 4,
       "options": {
         "count": 9,
-        "minSpeed": 170,
-        "maxSpeed": 300,
-        "spin": 1,
+        "minSpeed": 30,
+        "maxSpeed": 70,
+        "spin": 0,
         "sway": 22
       }
     }

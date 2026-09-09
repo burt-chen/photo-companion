@@ -83,7 +83,8 @@
   var motions = [];             /* [{ meta, instance }] */
   var frames = [];              /* [meta]，相框只是繪製樣式，不需實例 */
   var sizes = [];               /* [meta]，角色大小倍率 */
-  var currentSprite = null;
+  var selectedIds = [];         /* 已選的素材 id，順序即繪製順序 */
+  var actors = [];              /* [{ id, sprite, motion, motionType }] */
   var currentMotion = null;
   var currentFrame = null;
   var currentSize = null;
@@ -248,17 +249,94 @@
       if (sizes[i]['default']) { sizeIndex = i; break; }
     }
 
-    fillChips(el.spriteChips, sprites, selectSprite);
+    fillChips(el.spriteChips, sprites, toggleSprite);
     fillChips(el.motionChips, motions, selectMotion);
     fillChips(el.frameChips, frames.map(function (f) { return { meta: f }; }), selectFrame);
     fillChips(el.sizeChips, sizes.map(function (z) { return { meta: z }; }), selectSize);
 
-    currentSprite = sprites.length ? sprites[0] : null;
     currentMotion = motions.length ? motions[0] : null;
     currentFrame = frames.length ? frames[0] : null;
     currentSize = sizes[sizeIndex] || null;
     markSelected(el.sizeChips, sizeIndex);
+
+    selectedIds = sprites.length ? [sprites[0].meta.id] : [];
+    syncActors();
+    markSprites();
     updateDragState();
+  }
+
+  /* ======================================================================
+     多選素材
+     --------------------------------------------------------------------
+     每個選中的素材各自持有一份動作實例，因此同時出現時起始位置與相位
+     不同，不會完全重疊同步。加選或取消時，既有角色的位置會保留。
+     ====================================================================== */
+
+  function spriteById(id) {
+    for (var i = 0; i < sprites.length; i++) {
+      if (sprites[i].meta.id === id) return sprites[i];
+    }
+    return null;
+  }
+
+  function actorById(id) {
+    for (var i = 0; i < actors.length; i++) {
+      if (actors[i].id === id) return actors[i];
+    }
+    return null;
+  }
+
+  function syncActors() {
+    if (!currentMotion) { actors = []; return; }
+
+    var type = currentMotion.meta.type;
+    var options = currentMotion.meta.options || {};
+    var total = selectedIds.length;
+    var next = [];
+
+    selectedIds.forEach(function (id, n) {
+      var sprite = spriteById(id);
+      if (!sprite) return;
+
+      /* 動作種類沒變就沿用既有實例，保留使用者已擺放的位置 */
+      var prev = actorById(id);
+      if (prev && prev.motionType === type) { next.push(prev); return; }
+
+      var motion = PhotoEffects.createMotion(type, options);
+      if (!motion) return;
+      motion.reset(stage);
+      stagger(motion, n, total);
+      next.push({ id: id, sprite: sprite, motion: motion, motionType: type });
+    });
+
+    actors = next;
+  }
+
+  /* 多個角色同時出現時錯開水平位置，避免疊在一起 */
+  function stagger(motion, n, total) {
+    if (total < 2 || typeof motion.x !== 'number') return;
+    motion.x = stage.w * (n + 1) / (total + 1);
+  }
+
+  function toggleSprite(index) {
+    var sprite = sprites[index];
+    if (!sprite) return;
+
+    var id = sprite.meta.id;
+    var at = selectedIds.indexOf(id);
+    if (at >= 0) selectedIds.splice(at, 1);
+    else selectedIds.push(id);
+
+    syncActors();
+    markSprites();
+    updateDragState();
+  }
+
+  function markSprites() {
+    Array.prototype.forEach.call(el.spriteChips.children, function (c, i) {
+      var on = sprites[i] && selectedIds.indexOf(sprites[i].meta.id) >= 0;
+      c.setAttribute('aria-selected', String(!!on));
+    });
   }
 
   function fillChips(host, list, onPick) {
@@ -283,16 +361,10 @@
 
   /* 選擇後不自動收合，讓使用者可連續調整圖片與動作，
      由「更換」按鈕控制展開與收合。 */
-  function selectSprite(index) {
-    currentSprite = sprites[index] || null;
-    if (currentMotion) currentMotion.instance.reset(stage);
-    markSelected(el.spriteChips, index);
-  }
-
   function selectMotion(index) {
     currentMotion = motions[index] || null;
-    if (currentMotion) currentMotion.instance.reset(stage);
     markSelected(el.motionChips, index);
+    syncActors();
     updateDragState();
   }
 
@@ -303,20 +375,27 @@
      因此指標座標需依實際顯示尺寸換算回畫布座標。
      ====================================================================== */
 
-  var dragging = false;
+  var dragging = null;          /* 目前被拖曳的角色 */
 
   function isDraggable() {
-    return !!(currentMotion && currentMotion.instance.draggable && currentSprite);
+    for (var i = 0; i < actors.length; i++) {
+      if (actors[i].motion.draggable) return true;
+    }
+    return false;
+  }
+
+  function actorScale(a) {
+    return a.sprite.scale * (currentSize ? currentSize.factor : 1);
   }
 
   function updateDragState() {
+    actors.forEach(function (a) { a.motion.isDragging = false; });
+    dragging = null;
+
     var on = isDraggable();
     el.dragHint.hidden = !on;
     el.stage.classList.toggle('is-draggable', on);
-    if (!on) {
-      dragging = false;
-      el.stage.classList.remove('is-dragging');
-    }
+    el.stage.classList.remove('is-dragging');
   }
 
   function toCanvas(e) {
@@ -328,38 +407,41 @@
     };
   }
 
-  function currentScale() {
-    return currentSprite.scale * (currentSize ? currentSize.factor : 1);
-  }
-
   function onDragStart(e) {
-    if (!isDraggable() || busy) return;
+    if (busy) return;
     var p = toCanvas(e);
     if (!p) return;
 
-    var m = currentMotion.instance;
-    if (!m.hitTest(p.x, p.y, stage, currentSprite.instance, currentScale())) return;
+    /* 由後往前比對，後繪製的角色在上層，優先被抓住 */
+    for (var i = actors.length - 1; i >= 0; i--) {
+      var a = actors[i];
+      if (!a.motion.draggable) continue;
+      if (!a.motion.hitTest(p.x, p.y, stage, a.sprite.instance, actorScale(a))) continue;
 
-    dragging = true;
-    el.stage.classList.add('is-dragging');
-    closePickers();
-    if (el.stage.setPointerCapture && e.pointerId !== undefined) {
-      el.stage.setPointerCapture(e.pointerId);
+      dragging = a;
+      a.motion.isDragging = true;   /* 讓動作暫停，拖曳時才抓得住 */
+      el.stage.classList.add('is-dragging');
+      closePickers();
+      if (el.stage.setPointerCapture && e.pointerId !== undefined) {
+        el.stage.setPointerCapture(e.pointerId);
+      }
+      e.preventDefault();
+      return;
     }
-    e.preventDefault();
   }
 
   function onDragMove(e) {
     if (!dragging) return;
     var p = toCanvas(e);
     if (!p) return;
-    currentMotion.instance.moveTo(p.x, p.y, stage, currentSprite.instance, currentScale());
+    dragging.motion.moveTo(p.x, p.y, stage, dragging.sprite.instance, actorScale(dragging));
     e.preventDefault();
   }
 
   function onDragEnd() {
     if (!dragging) return;
-    dragging = false;
+    dragging.motion.isDragging = false;
+    dragging = null;
     el.stage.classList.remove('is-dragging');
   }
 
@@ -369,9 +451,7 @@
   }
 
   function selectSize(index) {
-    /* 大小改變後角色可能超出邊界，稍後由 moveTo 夾住 */
     currentSize = sizes[index] || null;
-    if (currentMotion) currentMotion.instance.reset(stage);
     markSelected(el.sizeChips, index);
   }
 
@@ -417,7 +497,7 @@
     stage.h = h;
     stage.u = h / 1000;
 
-    motions.forEach(function (m) { m.instance.reset(stage); });
+    actors.forEach(function (a) { a.motion.reset(stage); });
   }
 
   /* ======================================================================
@@ -533,12 +613,13 @@
     ctx.clearRect(0, 0, stage.w, stage.h);
     drawVideo();
 
-    /* 動作只負責運動，素材只負責外觀，兩者在此組合 */
-    if (currentMotion && currentSprite) {
-      var sprite = currentSprite.instance;
-      var scale = currentSprite.scale * (currentSize ? currentSize.factor : 1);
-      currentMotion.instance.update(dt, stage, sprite, scale);
-      currentMotion.instance.draw(ctx, stage, sprite, scale);
+    /* 動作只負責運動，素材只負責外觀，兩者在此組合。
+       多選時依選取順序繪製，後選的疊在上層。 */
+    for (var i = 0; i < actors.length; i++) {
+      var a = actors[i];
+      var scale = actorScale(a);
+      a.motion.update(dt, stage, a.sprite.instance, scale);
+      a.motion.draw(ctx, stage, a.sprite.instance, scale);
     }
 
     if (currentFrame) {
